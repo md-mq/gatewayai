@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.urls import path
 
-from gatewayai.server import views
+from gatewayai.server import passthrough, views
 
 llm_routes = [
     path(
@@ -22,6 +22,11 @@ llm_routes = [
         views.list_models,
         name="llm_models",
         kwargs=dict(methods=["GET"]),
+    ),
+    path(
+        "llm/<str:provider>/<path:path>",
+        passthrough.passthrough,
+        name="llm_passthrough",
     ),
 ]
 
