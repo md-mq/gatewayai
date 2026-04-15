@@ -5,6 +5,7 @@ from django.urls import path
 from gatewayai.server import passthrough, views
 
 llm_routes = [
+    # Unified (normalized) endpoints
     path(
         "llm/stream/",
         views.stream_completion,

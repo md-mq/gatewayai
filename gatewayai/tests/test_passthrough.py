@@ -4,6 +4,8 @@ import httpx
 import pytest
 
 from gatewayai.server.passthrough import (
+    AUTH_HEADERS_TO_STRIP,
+    UPSTREAM_FORMATS,
     _UPSTREAMS,
     _build_upstream_headers,
     _resolve_credential,
@@ -12,7 +14,6 @@ from gatewayai.server.passthrough import (
     passthrough,
     register_upstream,
 )
-
 
 
 def _make_request(

@@ -11,17 +11,11 @@ from gatewayai.credentials import (
     COOLDOWN_POLICY,
     CredentialPool,
     PooledCredential,
-    SelectionStrategy,
 )
 from gatewayai.server.utils import _get_api_key
 from gatewayai.types import ErrorCode, ErrorInfo
 
 logger = logging.getLogger("gatewayai.server")
-
-# --- Upstream Format Definitions ---
-# Only 3 truly distinct API auth formats exist in the LLM world.
-# Everything else (DeepSeek, Groq, Together, Mistral, GLM, etc.)
-# is OpenAI-compatible and reuses the "openai" format.
 
 UPSTREAM_FORMATS: dict[str, dict[str, str]] = {
     "openai": {
@@ -37,10 +31,6 @@ UPSTREAM_FORMATS: dict[str, dict[str, str]] = {
         "auth_format": "{api_key}",
     },
 }
-
-# --- Upstream Registry ---
-# Built-in providers. Additional providers can be registered at runtime
-# via register_upstream() — no code changes needed.
 
 _UPSTREAMS: dict[str, dict[str, str]] = {
     "openai": {"base_url": "https://api.openai.com", "format": "openai"},
@@ -78,8 +68,6 @@ def list_upstreams() -> list[str]:
     return list(_UPSTREAMS)
 
 
-# --- Auth Header Handling ---
-
 AUTH_HEADERS_TO_STRIP = frozenset({
     "authorization",
     "x-api-key",
@@ -101,8 +89,6 @@ PROPAGATED_RESPONSE_HEADERS = (
     "anthropic-ratelimit-tokens-reset",
 )
 
-# --- HTTP Client ---
-
 _client: httpx.AsyncClient | None = None
 
 
@@ -114,9 +100,6 @@ def _get_client() -> httpx.AsyncClient:
             follow_redirects=True,
         )
     return _client
-
-
-# --- Header Building ---
 
 
 def _build_upstream_headers(
@@ -132,27 +115,21 @@ def _build_upstream_headers(
     fmt = UPSTREAM_FORMATS[upstream_config["format"]]
     headers: dict[str, str] = {}
 
-    # Extract HTTP headers from Django's META
     for key, value in request.META.items():
         if key.startswith("HTTP_"):
             header_name = key[5:].replace("_", "-").lower()
             if header_name not in AUTH_HEADERS_TO_STRIP and header_name != "host":
                 headers[header_name] = value
 
-    # Include Content-Type if present
     content_type = request.META.get("CONTENT_TYPE")
     if content_type:
         headers["content-type"] = content_type
 
-    # Inject provider auth
     headers[fmt["auth_header"].lower()] = fmt["auth_format"].format(
         api_key=api_key
     )
 
     return headers
-
-
-# --- Credential Resolution ---
 
 
 def _resolve_credential(
@@ -176,12 +153,10 @@ def _resolve_credential(
     return PooledCredential(provider=provider, api_key=api_key)
 
 
-# Module-level pool reference. Set via configure_pool() at server startup.
 _pool: CredentialPool | None = None
 
 
 def configure_pool(pool: CredentialPool) -> None:
-    """Configure the credential pool for passthrough. Called at server startup."""
     global _pool
     _pool = pool
 
@@ -206,7 +181,6 @@ async def passthrough(
             content_type="application/json",
         )
 
-    # Resolve credential (pool or single key)
     cred = _resolve_credential(provider, request, _pool)
     if cred is None:
         if _pool is not None and _pool.all_exhausted(provider):
@@ -221,22 +195,17 @@ async def passthrough(
             content_type="application/json",
         )
 
-    # Build upstream URL
     upstream_url = f"{upstream['base_url']}/{path}"
     query_string = request.META.get("QUERY_STRING")
     if query_string:
         upstream_url += f"?{query_string}"
 
-    # Build headers
     headers = _build_upstream_headers(request, upstream, cred.api_key)
-
-    # Get request body for methods that have one
     method = request.method
     body = request.body if method in ("POST", "PUT", "PATCH") else None
 
     client = _get_client()
 
-    # Retry loop for credential rotation on 429/5xx
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
@@ -245,7 +214,6 @@ async def passthrough(
             )
             upstream_resp = await client.send(upstream_req, stream=True)
 
-            # Check if we need to rotate credentials
             if upstream_resp.status_code in COOLDOWN_POLICY and _pool is not None:
                 await upstream_resp.aclose()
                 error_info = ErrorInfo(
@@ -264,7 +232,6 @@ async def passthrough(
                     max_attempts,
                 )
 
-                # Try next credential
                 cred = _pool.select(provider)
                 if cred is None:
                     return HttpResponse(
@@ -275,7 +242,6 @@ async def passthrough(
                 headers = _build_upstream_headers(request, upstream, cred.api_key)
                 continue
 
-            # Success or non-retryable error — return the response
             return await _build_response(upstream_resp)
 
         except httpx.ConnectError:
@@ -293,7 +259,6 @@ async def passthrough(
                 content_type="application/json",
             )
 
-    # All retry attempts exhausted
     return HttpResponse(
         '{"error": "All retry attempts exhausted"}',
         status=429,
@@ -334,7 +299,6 @@ async def _build_response(upstream_resp: httpx.Response) -> HttpResponse:
             content_type=content_type,
         )
 
-    # Propagate select upstream headers
     for header in PROPAGATED_RESPONSE_HEADERS:
         value = upstream_resp.headers.get(header)
         if value:
