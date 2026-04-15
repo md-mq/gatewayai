@@ -32,9 +32,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
       - name: Install dependencies
         run: |
-          cd gatewayai/gatewayai
+          cd gatewayai
           uv sync --dev --extra server
       - name: Test with pytest
         run: |
-          cd gatewayai/gatewayai
+          cd gatewayai
           uv run pytest -vv
